@@ -52,11 +52,20 @@ class MLInferenceService:
             self.all_features = self.bundle["all_features"]
             self.transformed_features = self.bundle["transformed_features"]
 
-            # Initialize SHAP TreeExplainer if available
+            # Initialize SHAP explainer (TreeExplainer for tree models, LinearExplainer for linear)
             if SHAP_AVAILABLE:
                 classifier = self.pipeline.named_steps["classifier"]
-                self.explainer = shap.TreeExplainer(classifier)
-                logger.info("SHAP TreeExplainer initialized successfully.")
+                if hasattr(classifier, "feature_importances_"):
+                    self.explainer = shap.TreeExplainer(classifier)
+                    logger.info("SHAP TreeExplainer initialized successfully.")
+                elif hasattr(classifier, "coef_"):
+                    # For Linear models (LogisticRegression), initialize LinearExplainer with background sample
+                    preprocessor = self.pipeline.named_steps["preprocessor"]
+                    # Create zero background representation or fit masker
+                    self.explainer = shap.LinearExplainer(classifier, masker=shap.maskers.Independent(np.zeros((1, len(self.transformed_features)))))
+                    logger.info("SHAP LinearExplainer initialized successfully.")
+                else:
+                    self.explainer = None
 
             self.is_loaded = True
             logger.info(f"Model loaded successfully. Version: {self.metadata.get('version', 'unknown')}")
@@ -87,7 +96,17 @@ class MLInferenceService:
 
         # Model Global Feature Importances
         classifier = self.pipeline.named_steps["classifier"]
-        importances = classifier.feature_importances_
+        if hasattr(classifier, "feature_importances_"):
+            importances = classifier.feature_importances_
+        elif hasattr(classifier, "coef_"):
+            importances = np.mean(np.abs(classifier.coef_), axis=0)
+            # Normalize to sum to 1.0 for consistency
+            total = np.sum(importances)
+            if total > 0:
+                importances = importances / total
+        else:
+            importances = np.ones(len(self.transformed_features)) / len(self.transformed_features)
+
         imp_series = pd.Series(importances, index=self.transformed_features)
         top_importances = imp_series.sort_values(ascending=False).head(8).round(4).to_dict()
 

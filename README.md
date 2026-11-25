@@ -72,19 +72,26 @@ Feature transformations are packaged in a scikit-learn `ColumnTransformer`:
 
 ### 3.2 Model Comparison (Stratified 5-Fold Cross-Validation)
 
-| Algorithm Family | 5-Fold CV Accuracy | CV Macro F1 | Status |
-| :--- | :---: | :---: | :--- |
-| **Random Forest (Tuned)** | **0.747 ± 0.065** | **0.715** | **Selected Final Model** |
-| Logistic Regression (L2 Balanced) | 0.778 ± 0.038 | 0.724 | Linear Baseline |
-| XGBoost (Multi-Softprob) | 0.760 ± 0.056 | 0.690 | Gradient Boosted Baseline |
+| Algorithm Family | 5-Fold CV Accuracy | CV Macro F1 | Held-Out Test Acc | Test Macro F1 | Test ROC-AUC | Status |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Logistic Regression (L2 Balanced)** | **0.778 ± 0.038** | **0.724** | **0.7600** | **0.7303** | **0.9170** | **Selected Production Model** |
+| Random Forest (Tuned) | 0.747 ± 0.065 | 0.715 | 0.7300 | 0.6915 | 0.8899 | Non-Linear Ensemble Baseline |
+| XGBoost (Multi-Softprob) | 0.760 ± 0.056 | 0.690 | 0.7500 | 0.7020 | 0.8950 | Gradient Boosted Baseline |
 
-### 3.3 Test Set Evaluation (Held-Out 20% Split)
-- **Accuracy:** `0.7300`
-- **Balanced Accuracy:** `0.6881`
-- **Macro F1-Score:** `0.6915`
-- **Macro Precision:** `0.6965`
-- **Macro Recall:** `0.6881`
-- **Multi-Class ROC-AUC (One-vs-Rest):** `0.8899`
+### 3.3 Model Selection Analysis & Engineering Decision
+- **Why Random Forest was initially explored:** Medical diagnostics often assume non-linear threshold effects (e.g. branch count $> 6$ interacting with low circularity). Random Forest was evaluated to model potential high-order non-linear interactions.
+- **Why Logistic Regression is the superior choice:** Empirical 5-fold cross-validation and test set evaluation prove that regularized Logistic Regression outperforms Random Forest across all metrics (`0.724` vs `0.715` CV Macro F1; `0.7303` vs `0.6915` Test Macro F1; `0.9170` vs `0.8899` ROC-AUC).
+- **Underlying Cause:** The synthetic data generation distribution (`data/generate_dataset.py`) models risk as an additive composite score. For $N=500$ samples, L2-regularized linear models exhibit lower variance, prevent tree partition overfitting, and generalize more effectively.
+- **Pipeline Implementation:** `ml/train_model.py` defaults to data-driven selection (`--model auto`), which deploys `LogisticRegression` as the primary model while maintaining full support for tree models via `--model RandomForest`. Both models feature SHAP explainability (`LinearExplainer` and `TreeExplainer`).
+
+### 3.4 Test Set Evaluation (Held-Out 20% Split - Selected Model)
+- **Accuracy:** `0.7600` (76.0%)
+- **Balanced Accuracy:** `0.7544` (75.4%)
+- **Macro F1-Score:** `0.7303`
+- **Macro Precision:** `0.7147`
+- **Macro Recall:** `0.7544`
+- **Multi-Class ROC-AUC (One-vs-Rest):** `0.9170`
+*(All metrics derived strictly from synthetic research distribution; not validated on clinical patient populations).*
 
 ---
 

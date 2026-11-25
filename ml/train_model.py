@@ -145,7 +145,7 @@ def evaluate_model_cv(
 
 
 def train_and_benchmark(
-    data_path: Path, output_dir: Path, tune: bool = True
+    data_path: Path, output_dir: Path, tune: bool = True, model_choice: str = "auto"
 ) -> Dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     plots_dir = output_dir / "plots"
@@ -214,11 +214,27 @@ def train_and_benchmark(
             f"CV Macro F1: {cv_metrics['cv_f1_macro_mean']:.3f}"
         )
 
-    # Hyperparameter Optimization on selected ensemble model (RandomForest)
-    best_model_name = "RandomForest"
-    final_pipeline = candidate_pipelines[best_model_name]
+    # Model Selection Strategy
+    if model_choice == "auto":
+        # Select best model based on cross-validation macro F1
+        best_model_name = max(comparison_results, key=lambda k: comparison_results[k]["cv_f1_macro_mean"])
+        selection_rationale = (
+            f"Automatically selected '{best_model_name}' because it achieved the highest 5-fold CV Macro F1 "
+            f"({comparison_results[best_model_name]['cv_f1_macro_mean']:.3f}). In synthetic benchmarking, "
+            f"the underlying data generation formula is predominantly an additive linear risk function, "
+            f"enabling regularized linear models to generalize with high precision."
+        )
+    else:
+        best_model_name = model_choice
+        selection_rationale = f"Manually pinned model choice: '{best_model_name}'."
 
-    if tune:
+    print(f"\n[*] Model Selection: {best_model_name}")
+    print(f"[*] Rationale: {selection_rationale}")
+
+    final_pipeline = candidate_pipelines[best_model_name]
+    tuned_params = {}
+
+    if tune and best_model_name == "RandomForest":
         print("\n" + "=" * 60)
         print(f"[*] STEP 2: Hyperparameter Optimization for {best_model_name}")
         print("=" * 60)
@@ -240,9 +256,30 @@ def train_and_benchmark(
         print(f"  -> Best CV Macro F1: {grid_search.best_score_:.3f}")
         final_pipeline = grid_search.best_estimator_
         tuned_params = grid_search.best_params_
+    elif tune and best_model_name == "LogisticRegression":
+        print("\n" + "=" * 60)
+        print(f"[*] STEP 2: Hyperparameter Optimization for {best_model_name}")
+        print("=" * 60)
+        param_grid = {
+            "classifier__C": [0.01, 0.1, 1.0, 5.0, 10.0],
+            "classifier__penalty": ["l2"],
+            "classifier__solver": ["lbfgs"],
+        }
+        grid_search = GridSearchCV(
+            final_pipeline,
+            param_grid=param_grid,
+            cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+            scoring="f1_macro",
+            n_jobs=-1,
+        )
+        grid_search.fit(X_train, y_train)
+        print(f"  -> Best Hyperparameters: {grid_search.best_params_}")
+        print(f"  -> Best CV Macro F1: {grid_search.best_score_:.3f}")
+        final_pipeline = grid_search.best_estimator_
+        tuned_params = grid_search.best_params_
     else:
         final_pipeline.fit(X_train, y_train)
-        tuned_params = {"classifier__n_estimators": 300, "classifier__max_depth": 8}
+        tuned_params = {"default": True}
 
     print("\n" + "=" * 60)
     print("[*] STEP 3: Evaluating Best Model on Held-Out Test Set")
@@ -315,7 +352,7 @@ def train_and_benchmark(
     plt.savefig(comp_path, dpi=180)
     plt.close()
 
-    # Global Feature Importance from RandomForest
+    # Global Feature Importance
     fitted_preprocessor = final_pipeline.named_steps["preprocessor"]
     fitted_classifier = final_pipeline.named_steps["classifier"]
 
@@ -324,7 +361,16 @@ def train_and_benchmark(
     transformed_cat_features = list(cat_encoder.get_feature_names_out(CATEGORICAL_FEATURES))
     all_transformed_features = NUMERICAL_FEATURES + transformed_cat_features
 
-    raw_importances = fitted_classifier.feature_importances_
+    if hasattr(fitted_classifier, "feature_importances_"):
+        raw_importances = fitted_classifier.feature_importances_
+        imp_title = f"Top 15 Feature Importances (Gini - {best_model_name})"
+    elif hasattr(fitted_classifier, "coef_"):
+        raw_importances = np.mean(np.abs(fitted_classifier.coef_), axis=0)
+        imp_title = f"Top 15 Feature Importances (Mean |Coef| - {best_model_name})"
+    else:
+        raw_importances = np.ones(len(all_transformed_features)) / len(all_transformed_features)
+        imp_title = f"Top 15 Feature Importances ({best_model_name})"
+
     feat_imp_df = pd.DataFrame({
         "feature": all_transformed_features,
         "importance": raw_importances,
@@ -335,7 +381,7 @@ def train_and_benchmark(
     plt.figure(figsize=(8, 5))
     top15 = feat_imp_df.head(15).sort_values(by="importance", ascending=True)
     plt.barh(top15["feature"], top15["importance"], color="#3F6E52")
-    plt.title("Top 15 Feature Importances (Gini - Random Forest)")
+    plt.title(imp_title)
     plt.xlabel("Importance")
     plt.tight_layout()
     plt.savefig(plots_dir / "feature_importance_top15.png", dpi=180)
@@ -350,8 +396,15 @@ def train_and_benchmark(
     X_test_transformed = fitted_preprocessor.transform(X_test)
     X_train_transformed = fitted_preprocessor.transform(X_train)
 
-    explainer = shap.TreeExplainer(fitted_classifier)
-    shap_values = explainer.shap_values(X_test_transformed)
+    if hasattr(fitted_classifier, "feature_importances_"):
+        explainer = shap.TreeExplainer(fitted_classifier)
+        shap_values = explainer.shap_values(X_test_transformed)
+    elif hasattr(fitted_classifier, "coef_"):
+        explainer = shap.LinearExplainer(fitted_classifier, X_train_transformed)
+        shap_values = explainer.shap_values(X_test_transformed)
+    else:
+        explainer = shap.Explainer(fitted_classifier, X_train_transformed)
+        shap_values = explainer(X_test_transformed).values
 
     # Normalize SHAP values across classes to get mean absolute impact
     if isinstance(shap_values, list):
@@ -383,6 +436,7 @@ def train_and_benchmark(
         "version": "2.0.0",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model_type": best_model_name,
+        "model_selection_rationale": selection_rationale,
         "dataset_hash": data_hash,
         "dataset_rows": len(df),
         "train_rows": len(X_train),
@@ -403,6 +457,7 @@ def train_and_benchmark(
             "test_roc_auc_ovr": round(test_roc_auc, 4) if test_roc_auc else None,
         },
         "cv_benchmark": comparison_results,
+        "model_selection_rationale": selection_rationale,
         "disclaimer": DISCLAIMER_TEXT,
     }
 
@@ -432,6 +487,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Siddha AI Model Pipeline")
     parser.add_argument("--data-path", type=str, default="../data/siddha_synthetic_dataset.csv")
     parser.add_argument("--output-dir", type=str, default=".")
+    parser.add_argument("--model", type=str, default="auto", choices=["auto", "LogisticRegression", "RandomForest", "XGBoost"], help="Model selection (auto chooses highest CV F1)")
     parser.add_argument("--no-tune", action="store_true", help="Skip hyperparameter grid search")
     args = parser.parse_args()
 
@@ -443,4 +499,5 @@ if __name__ == "__main__":
         data_path=resolved_data,
         output_dir=resolved_out,
         tune=not args.no_tune,
+        model_choice=args.model,
     )
