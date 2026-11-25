@@ -1,0 +1,28 @@
+# ── Backend-only install ──────────────────────────────────────────────
+# Use this if you just want to RUN the app. model.pkl / encoder.pkl are
+# already included in ml/ — you do NOT need pandas/scikit-learn/numpy's
+# build toolchain to serve predictions.
+#
+# Deliberately UNPINNED: pip will pick the latest version that has a
+# prebuilt wheel for your Python version, which avoids "compiling numpy
+# from source" errors on newer Python releases (e.g. 3.13/3.14) where
+# older pinned versions have no wheels yet.
+#
+#   pip install -r requirements-backend.txt
+#
+fastapi
+uvicorn[standard]
+python-multipart
+pillow
+opencv-python-headless
+pydantic
+numpy
+pandas
+scikit-learn
+joblib
+
+# Optional — improves per-patient explainability but the backend runs
+# fine without it (falls back to global feature importance automatically).
+# If this fails to install on your Python version, just delete this line
+# and re-run pip install.
+shap

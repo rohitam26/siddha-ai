@@ -1,0 +1,31 @@
+# ── Siddha AI Core Dependencies ──────────────────────────────────────────
+# Clean, consolidated dependencies for ML training, CV, backend, and testing.
+
+# Web Backend & API
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+pydantic-settings>=2.4.0
+python-multipart>=0.0.9
+sqlalchemy>=2.0.30
+
+# Computer Vision & Image Processing
+opencv-python-headless>=4.10.0
+pillow>=10.4.0
+
+# Machine Learning & Scientific Computing
+numpy>=1.26.0
+pandas>=2.2.0
+scikit-learn>=1.5.0
+xgboost>=2.1.0
+joblib>=1.4.0
+shap>=0.45.0
+
+# Visualization & Evaluation
+matplotlib>=3.9.0
+seaborn>=0.13.0
+
+# Testing & Quality Assurance
+pytest>=8.3.0
+httpx>=0.27.0
+pytest-asyncio>=0.23.0

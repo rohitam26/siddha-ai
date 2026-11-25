@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { font-family: 'Inter', sans-serif; }
+.font-display { font-family: 'Fraunces', serif; }
+.input {
+  @apply w-full mt-1 rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm
+         focus:outline-none focus:ring-2 focus:ring-neem/40;
+}

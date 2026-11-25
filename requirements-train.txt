@@ -1,0 +1,10 @@
+# ── Full install (retraining + evaluation) ────────────────────────────
+# Use this only if you want to regenerate the dataset or retrain the
+# model (data/generate_dataset.py, ml/train_model.py). Not needed just
+# to run the backend — see requirements-backend.txt for that.
+#
+# Deliberately UNPINNED for the same reason as requirements-backend.txt.
+#
+-r requirements-backend.txt
+matplotlib
+seaborn
