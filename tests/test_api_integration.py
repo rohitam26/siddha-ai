@@ -93,3 +93,41 @@ def test_legacy_upload_compatibility(client, synthetic_image_bgr):
     data = res.json()
     assert "extracted_features" in data
     assert "disclaimer" in data
+
+
+def test_delete_report_endpoint(client, sample_clinical_payload):
+    """DELETE /api/v1/reports/{id} removes record from SQLite."""
+    # Create report
+    create_res = client.post("/api/v1/analysis/predict", json=sample_clinical_payload)
+    pid = create_res.json()["patient_id"]
+
+    # Delete report
+    del_res = client.delete(f"/api/v1/reports/{pid}")
+    assert del_res.status_code == 200
+    assert "deleted" in del_res.json()["message"]
+
+    # Verify 404 on subsequent get
+    get_res = client.get(f"/api/v1/reports/{pid}")
+    assert get_res.status_code == 404
+
+
+def test_report_not_found_404(client):
+    """GET /api/v1/reports/NONEXISTENT should return 404."""
+    res = client.get("/api/v1/reports/NONEXISTENT-999")
+    assert res.status_code == 404
+
+
+def test_invalid_payload_rejected_with_422(client):
+    """POST /api/v1/analysis/predict with invalid age should return 422 Unprocessable Entity."""
+    bad_payload = {"age": 999, "gender": "Male"}  # age > 120 and missing required features
+    res = client.post("/api/v1/analysis/predict", json=bad_payload)
+    assert res.status_code == 422
+
+
+def test_corrupt_image_upload_rejected(client):
+    """POST /api/v1/vision/neerkuri with invalid bytes should return 400 Bad Request."""
+    corrupt_bytes = b"NOT_A_VALID_IMAGE_HEADER_12345"
+    files = {"file": ("corrupt.jpg", io.BytesIO(corrupt_bytes), "image/jpeg")}
+    res = client.post("/api/v1/vision/neerkuri", files=files)
+    assert res.status_code == 400
+
